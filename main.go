@@ -13,21 +13,49 @@ import (
 
 	"github.com/yuki-inoue-eng/order-book-searcher/lib"
 	"github.com/yuki-inoue-eng/order-book-searcher/lib/oanda"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/transform"
 )
 
 var (
+	oandaKey             = flag.String("oanda-key", "", "oanda API key")
 	fileNamePrefix       = flag.String("fname", "ob-search", "")
-	periodStr            = flag.String("period", "none", "specify the aggregation period.")
-	instrumentStr        = flag.String("instrument", "USD_JPY", "specify a instrument.")
-	stopOrderStr         = flag.String("stop-order", "none", "")
-	limitOrderStr        = flag.String("limit-order", "none", "")
-	losingPositionStr    = flag.String("losingPosition", "none", "")
-	profitingPositionStr = flag.String("profiting-position", "none", "")
+	timeLoc              = flag.String("loc", "UTC", "")
+	periodStr            = flag.String("period", "", "specify the aggregation period.")
+	instrumentStr        = flag.String("instrument", "", "specify a instrument.")
+	stopOrderStr         = flag.String("stop-order", "", "")
+	limitOrderStr        = flag.String("limit-order", "", "")
+	losingPositionStr    = flag.String("losingPosition", "", "")
+	profitingPositionStr = flag.String("profiting-position", "", "")
+	jp                   = flag.Bool("jp", false, "")
 	//netAmount            = flag.Bool("net-amount", false, "") 純額は後ほど
 )
 
 func main() {
 	flag.Parse()
+
+	// TODO:log
+	fmt.Println("period: " + *periodStr)
+	fmt.Println("instrument: " + *instrumentStr)
+	fmt.Println("stop-order: " + *stopOrderStr)
+	fmt.Println("limit-order: " + *limitOrderStr)
+	fmt.Println("losing-osition: " + *losingPositionStr)
+	fmt.Println("profiting-position: " + *profitingPositionStr)
+	fmt.Printf("jp: %t\n", *jp)
+
+	// validate oanda-key
+	if len(*oandaKey) == 0 {
+		log.Fatal("oanda-key is required")
+		return
+	}
+
+	// validate loc
+	if len(*timeLoc) == 0 {
+		if *timeLoc != "UTC" && *timeLoc != "JST" && *timeLoc != "MT4" {
+			log.Fatalf("invalid time location: %s", *timeLoc)
+			return
+		}
+	}
 
 	// validate period
 	if len(*periodStr) == 0 {
@@ -64,7 +92,7 @@ func main() {
 
 	// validate stop-order
 	var stopOrderLowerLimits []float64
-	if len(*stopOrderStr) == 0 {
+	if len(*stopOrderStr) > 0 {
 		for _, s := range strings.Split(*stopOrderStr, "-") {
 			v, err := strconv.ParseFloat(s, 64)
 			if err != nil {
@@ -77,7 +105,7 @@ func main() {
 
 	// validate limit-order
 	var limitOrderLowerLimits []float64
-	if len(*limitOrderStr) == 0 {
+	if len(*limitOrderStr) > 0 {
 		for _, l := range strings.Split(*limitOrderStr, "-") {
 			v, err := strconv.ParseFloat(l, 64)
 			if err != nil {
@@ -90,7 +118,7 @@ func main() {
 
 	// validate losing-position
 	var losingPositionLowerLimits []float64
-	if len(*losingPositionStr) == 0 {
+	if len(*losingPositionStr) > 0 {
 		for _, l := range strings.Split(*losingPositionStr, "-") {
 			v, err := strconv.ParseFloat(l, 64)
 			if err != nil {
@@ -103,7 +131,7 @@ func main() {
 
 	// validate profiting-position
 	var profitingPositionLowerLimits []float64
-	if len(*profitingPositionStr) == 0 {
+	if len(*profitingPositionStr) > 0 {
 		for _, p := range strings.Split(*profitingPositionStr, "-") {
 			v, err := strconv.ParseFloat(p, 64)
 			if err != nil {
@@ -124,13 +152,13 @@ func main() {
 	const twentyMinutes = 1200
 	for iTime := since.Unix(); iTime < until.Unix(); iTime += twentyMinutes {
 		t := time.Unix(iTime, 0)
-		client := oanda.NewClient(lib.ParamTradeForceOandaAPIKey.FetchValue(), "Practice")
+		client := oanda.NewClient(*oandaKey, "Practice")
 		orderBook, err := client.FetchOrderBook(instrument, &t)
 		if err != nil {
 			log.Printf("failed to fetch order book (at %s): %v", t.String(), err)
 			continue
 		}
-		client = oanda.NewClient(lib.ParamTradeForceOandaAPIKey.FetchValue(), "Practice")
+		client = oanda.NewClient(*oandaKey, "Practice")
 		positionBook, err := client.FetchPositionBook(instrument, &t)
 		if err != nil {
 			log.Printf("failed to fetch position book (at %s): %v ", t.String(), err)
@@ -151,12 +179,12 @@ func main() {
 			continue
 		}
 
-		// search applicable stop loss order
+		// search applicable stop order
 		var stopOrderRecords []record
 		if len(stopOrderLowerLimits) > 0 {
-			var shortBuckets []bucket
-			var longBuckets []bucket
 			for i := 0; i < targetRange-len(stopOrderLowerLimits); i++ {
+				var shortBuckets []bucket
+				var longBuckets []bucket
 				for j := 0; j < len(stopOrderLowerLimits); j++ {
 					if oShort[i+j].ShortCountPercent >= stopOrderLowerLimits[j] {
 						b := bucket{
@@ -179,31 +207,34 @@ func main() {
 						longBuckets = append(longBuckets, b)
 					}
 				}
-			}
-			if len(shortBuckets) != 0 {
-				stopOrderRecords = append(stopOrderRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    shortBuckets,
-				})
-			}
-			if len(longBuckets) != 0 {
-				stopOrderRecords = append(stopOrderRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    longBuckets,
-				})
+				if len(shortBuckets) == len(stopOrderLowerLimits) {
+					stopOrderRecords = append(stopOrderRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    shortBuckets,
+					})
+				}
+				if len(longBuckets) == len(stopOrderLowerLimits) {
+					stopOrderRecords = append(stopOrderRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    longBuckets,
+					})
+				}
+				if len(stopOrderRecords) > 0 {
+					break
+				}
 			}
 		}
 
 		// search applicable limit order
 		var limitOrderRecords []record
 		if len(limitOrderLowerLimits) > 0 {
-			var shortBuckets []bucket
-			var longBuckets []bucket
 			for i := 0; i < targetRange-len(limitOrderLowerLimits); i++ {
+				var shortBuckets []bucket
+				var longBuckets []bucket
 				for j := 0; j < len(limitOrderLowerLimits); j++ {
 					if oShort[i+j].LongCountPercent >= limitOrderLowerLimits[j] {
 						b := bucket{
@@ -226,31 +257,34 @@ func main() {
 						longBuckets = append(longBuckets, b)
 					}
 				}
-			}
-			if len(shortBuckets) != 0 {
-				limitOrderRecords = append(limitOrderRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    shortBuckets,
-				})
-			}
-			if len(longBuckets) != 0 {
-				limitOrderRecords = append(limitOrderRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    longBuckets,
-				})
+				if len(shortBuckets) == len(limitOrderLowerLimits) {
+					limitOrderRecords = append(limitOrderRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    shortBuckets,
+					})
+				}
+				if len(longBuckets) == len(limitOrderLowerLimits) {
+					limitOrderRecords = append(limitOrderRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    longBuckets,
+					})
+				}
+				if len(limitOrderRecords) > 0 {
+					break
+				}
 			}
 		}
 
 		// search applicable losing position
 		var losingPositionRecords []record
 		if len(losingPositionLowerLimits) > 0 {
-			var shortBuckets []bucket
-			var longBuckets []bucket
 			for i := 0; i < targetRange-len(losingPositionLowerLimits); i++ {
+				var shortBuckets []bucket
+				var longBuckets []bucket
 				for j := 0; j < len(losingPositionLowerLimits); j++ {
 					if oShort[i+j].ShortCountPercent >= losingPositionLowerLimits[j] {
 						b := bucket{
@@ -273,31 +307,34 @@ func main() {
 						longBuckets = append(longBuckets, b)
 					}
 				}
-			}
-			if len(shortBuckets) != 0 {
-				losingPositionRecords = append(losingPositionRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    shortBuckets,
-				})
-			}
-			if len(longBuckets) != 0 {
-				losingPositionRecords = append(losingPositionRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    longBuckets,
-				})
+				if len(shortBuckets) == len(losingPositionLowerLimits) {
+					losingPositionRecords = append(losingPositionRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    shortBuckets,
+					})
+				}
+				if len(longBuckets) == len(losingPositionLowerLimits) {
+					losingPositionRecords = append(losingPositionRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    longBuckets,
+					})
+				}
+				if len(losingPositionRecords) > 0 {
+					break
+				}
 			}
 		}
 
 		// search applicable profiting position
 		var profitingPositionRecords []record
 		if len(profitingPositionLowerLimits) > 0 {
-			var shortBuckets []bucket
-			var longBuckets []bucket
 			for i := 0; i < targetRange-len(profitingPositionLowerLimits); i++ {
+				var shortBuckets []bucket
+				var longBuckets []bucket
 				for j := 0; j < len(profitingPositionLowerLimits); j++ {
 					if oShort[i+j].LongCountPercent >= profitingPositionLowerLimits[j] {
 						b := bucket{
@@ -320,22 +357,25 @@ func main() {
 						longBuckets = append(longBuckets, b)
 					}
 				}
-			}
-			if len(shortBuckets) != 0 {
-				profitingPositionRecords = append(profitingPositionRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    shortBuckets,
-				})
-			}
-			if len(longBuckets) != 0 {
-				profitingPositionRecords = append(profitingPositionRecords, record{
-					dateTime:   dateTime,
-					price:      price,
-					instrument: instrument,
-					buckets:    longBuckets,
-				})
+				if len(shortBuckets) == len(profitingPositionLowerLimits) {
+					profitingPositionRecords = append(profitingPositionRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    shortBuckets,
+					})
+				}
+				if len(longBuckets) == len(profitingPositionLowerLimits) {
+					profitingPositionRecords = append(profitingPositionRecords, record{
+						dateTime:   dateTime,
+						price:      price,
+						instrument: instrument,
+						buckets:    longBuckets,
+					})
+				}
+				if len(profitingPositionLowerLimits) > 0 {
+					break
+				}
 			}
 		}
 
@@ -351,9 +391,10 @@ func main() {
 		log.Fatalf("failed to create file: %v", err)
 		return
 	}
+	defer lib.SafeClose(f)
 
 	// write csv
-	baseHeader := []string{"date-time", "price"}
+	baseHeader := []string{fmt.Sprintf("date-time (%s)", *timeLoc), "price"}
 	bucketHeader := []string{"price-range", "short-order", "long-order", "short-position", "long-position"}
 	bucketHeaderMaxSize := len(stopOrderLowerLimits)
 	if bucketHeaderMaxSize < len(limitOrderLowerLimits) {
@@ -376,10 +417,11 @@ func writeCSV(f io.Writer, baseHeader, bucketHeader []string, bucketHeaderMaxSiz
 	// build header
 	header := baseHeader
 	for i := 0; i < bucketHeaderMaxSize; i++ {
-		for j, s := range bucketHeader {
-			bucketHeader[j] = fmt.Sprintf("%s-%d", s, i)
+		var h []string
+		for _, s := range bucketHeader {
+			h = append(h, fmt.Sprintf("%s-%d", s, i))
 		}
-		header = append(header, bucketHeader...)
+		header = append(header, h...)
 	}
 
 	// build records
@@ -394,11 +436,14 @@ func writeCSV(f io.Writer, baseHeader, bucketHeader []string, bucketHeaderMaxSiz
 			bucketRecord = append(bucketRecord, strconv.FormatFloat(b.shortPosition, 'f', 2, 64))
 			bucketRecord = append(bucketRecord, strconv.FormatFloat(b.longPosition, 'f', 2, 64))
 		}
-		csvRecords = append(csvRecords, append([]string{r.dateTime.String(), r.price.PriceStr(r.instrument)}, bucketRecord...))
+		csvRecords = append(csvRecords, append([]string{timeString(r.dateTime, *timeLoc), r.price.PriceStr(r.instrument)}, bucketRecord...))
 	}
 
 	// write csv
 	w := csv.NewWriter(f)
+	if *jp {
+		w = csv.NewWriter(transform.NewWriter(f, japanese.ShiftJIS.NewEncoder()))
+	}
 	if err := w.WriteAll(csvRecords); err != nil {
 		return err
 	}
@@ -406,8 +451,29 @@ func writeCSV(f io.Writer, baseHeader, bucketHeader []string, bucketHeaderMaxSiz
 	return nil
 }
 
+func timeString(t time.Time, loc string) string {
+	utc, err := time.LoadLocation("UTC")
+	if err != nil {
+		log.Fatalf("failed to load time location: %v", err)
+	}
+	jst, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		log.Fatalf("failed to load time location: %v", err)
+	}
+	if loc == "UTC" {
+		t = t.In(utc)
+	} else if loc == "JST" {
+		t = t.In(jst)
+	} else if loc == "MT4" {
+		t = t.In(utc)
+		t = t.Add(2 * time.Hour)
+	}
+	y, m, d := t.Date()
+	return fmt.Sprintf("%04d/%02d/%02d %02d:%02d:%02d", y, int(m), d, t.Hour(), t.Minute(), t.Second())
+}
+
 func buildFileName(prefix, instrument, period string) string {
-	return fmt.Sprintf("%s_%s_%s.csv", prefix, instrument, period)
+	return fmt.Sprintf("%s_%s_%s.csv", prefix, instrument, strings.Replace(period, "/", "", -1))
 }
 
 type record struct {

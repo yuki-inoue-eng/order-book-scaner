@@ -2,10 +2,11 @@ package oanda
 
 import (
 	"fmt"
-	"github.com/yuki-inoue-eng/trade-force/backend/lib"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	"github.com/yuki-inoue-eng/order-book-searcher/lib"
 )
 
 const authorizationPrefix = "Bearer "
@@ -45,6 +46,7 @@ func (c *Client) fetchOrderBook(instrument Instrument, dateTime *time.Time) ([]b
 		url,
 		nil,
 	)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %v", err)
 	}
@@ -64,7 +66,6 @@ func (c *Client) fetchOrderBook(instrument Instrument, dateTime *time.Time) ([]b
 	}
 	return body, nil
 }
-
 func (c *Client) fetchPositionBook(instrument Instrument, dateTime *time.Time) ([]byte, error) {
 	url := c.endpoint + "/v3/instruments/" + string(instrument) + "/positionBook"
 	if dateTime != nil {

@@ -9,8 +9,8 @@ setup: ## Resolve library dependencies with Go Modules
 	go mod download
 
 .PHONY: build
-build: setup  ## Build the lambda function
-	go build -o build/order-book-trader .
+build: setup  ## build application
+	go build -o build/order-book-searcher .
 
 # See "Self-Documented Makefile" article
 # https://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
