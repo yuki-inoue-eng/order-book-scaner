@@ -30,6 +30,7 @@ go run . -oanda-key xxxxxxx -period 2020/10/01-2020/10/04 -instrument EUR_GBP -s
 ### output
 
 | ヘッダー | 詳細 |
+| --- | --- |
 | date-time | order book の日時 |
 | price | 当時の価格 |
 | price-range-{:i} | ヒットした価格帯 |
