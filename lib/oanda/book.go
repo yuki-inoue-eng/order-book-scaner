@@ -88,8 +88,8 @@ func (o *Book) ExtractBucketVicinityOfPrice(price Price, n int) (short, long []B
 	var higherBuckets []BookBucket
 	for i, b := range o.Buckets {
 		if b.Price > price {
-			lowerBuckets = o.Buckets[:i-1]
-			higherBuckets = o.Buckets[i-1:]
+			lowerBuckets = o.Buckets[:i]
+			higherBuckets = o.Buckets[i:]
 			break
 		}
 	}
