@@ -3,6 +3,7 @@ package oanda
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -84,12 +85,13 @@ func (o *Book) ExtractBucket(maxPrice, minPrice float64) {
 }
 
 func (o *Book) ExtractBucketVicinityOfPrice(price Price, n int) (short, long []BookBucket, err error) {
+	sort.Slice(o.Buckets, func(i, j int) bool { return o.Buckets[i].Price < o.Buckets[j].Price })
 	var lowerBuckets []BookBucket
 	var higherBuckets []BookBucket
 	for i, b := range o.Buckets {
 		if b.Price > price {
-			lowerBuckets = o.Buckets[:i-1]
-			higherBuckets = o.Buckets[i-1:]
+			lowerBuckets = o.Buckets[:i]
+			higherBuckets = o.Buckets[i:]
 			break
 		}
 	}
