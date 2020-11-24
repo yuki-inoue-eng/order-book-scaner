@@ -460,14 +460,19 @@ func timeString(t time.Time, loc string) string {
 	if err != nil {
 		log.Fatalf("failed to load time location: %v", err)
 	}
+	est, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		log.Fatalf("failed to load time location: %v", err)
+	}
 	if loc == "UTC" {
 		t = t.In(utc)
 	} else if loc == "JST" {
 		t = t.In(jst)
 	} else if loc == "MT4" {
-		t = t.In(utc)
-		t = t.Add(2 * time.Hour)
+		t = t.In(est)
+		t = t.Add(7 * time.Hour)
 	}
+
 	y, m, d := t.Date()
 	return fmt.Sprintf("%04d/%02d/%02d %02d:%02d:%02d", y, int(m), d, t.Hour(), t.Minute(), t.Second())
 }

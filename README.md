@@ -19,12 +19,12 @@ oanda のオーダーブックを分析するためのコマンドラインツ�
 | losing-position | 損失が出ているポジションの下限比率を指定します。複数指定した場合はその数値が連続した価格帯が存在している箇所を検索します。 |
 | profiting-position | 利益が出ているポジションの下限比率を指定します。複数指定した場合はその数値が連続した価格帯が存在している箇所を検索します。 |
 | jp | Excel 最適化を行います |
-| loc | date-time カラムの time location を指定します。 UTC, JST, MT4 が選択可能です。 |
+| loc | date-time カラムの time location を指定します。 UTC, JST, EST が選択可能です。 |
 
 ex:
+
 ```
 go run . -oanda-key xxxxxxx -period 2020/10/01-2020/10/04 -instrument EUR_GBP -stop-order 0.5-1.0 -jp -loc MT4
-
 ```
 
 ### output
